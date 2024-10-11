@@ -1,16 +1,15 @@
-use sha2::{Digest, Sha256};
 use ring::pbkdf2;
 use std::num::NonZeroU32;
 
-/// Derive a key from a mnemonic phrase.
-pub fn derive_key_from_mnemonic(mnemonic: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(mnemonic.as_bytes());
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result);
-    key
-}
+// /// Derive a key from a mnemonic phrase.
+// pub fn derive_key_from_mnemonic(mnemonic: &str) -> [u8; 32] {
+//     let mut hasher = Sha256::new();
+//     hasher.update(mnemonic.as_bytes());
+//     let result = hasher.finalize();
+//     let mut key = [0u8; 32];
+//     key.copy_from_slice(&result);
+//     key
+// }
 
 pub fn derive_key_from_password(password: &str, salt: &[u8]) -> [u8; 32] {
     let mut key = [0u8; 32];

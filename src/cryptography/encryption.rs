@@ -16,7 +16,7 @@ use crate::cryptography::derive;
 
 
 const SALT_FILE: &str = ".commune_salt";
-const PASSWORD_ENV: &str = "COMX_PASSWORD";
+// const PASSWORD_ENV: &str = "COMX_PASSWORD";
 
 #[derive(Debug)]
 pub enum EncryptionError {
@@ -141,7 +141,6 @@ pub fn encrypt_key_file(key_name: &str, key_bytes: &[u8]) -> Result<(), Encrypti
         // println!("Debug: Encrypted key path: {:?}", encrypted_key_path.display());
 
         if encrypted_key_path.exists() {
-            let data = fs::read(&encrypted_key_path)?;
             // println!("Debug: Read {} bytes from encrypted key file", data.len());
             return Ok(());
         }
