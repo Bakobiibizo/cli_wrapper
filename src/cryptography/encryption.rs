@@ -1,11 +1,14 @@
-use std::fmt;
-use std::error::Error;
+use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use aes_gcm::aead::generic_array::GenericArray;
 use rand::Rng;
+use std::error::Error;
+use std::fmt;
+use std::fs;
+use std::path::PathBuf;
+use dirs::home_dir;
 
 #[derive(Debug)]
 pub enum EncryptionError {
@@ -52,36 +55,42 @@ impl From<rand::Error> for EncryptionError {
     }
 }
 
-pub type NonceWrapper<NonceSize> = GenericArray<u8, NonceSize>;
-
-pub fn decrypt_key_file(key_name: &str, key_bytes: &[u8]) -> Result<(), EncryptionError> {
-    let encrypted_path = format!("/.commune/key/encrypted/{}.enc", key_name);
-    let encrypted_data = std::fs::read(&encrypted_path)?;
-
-    let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
-
-    // Explicitly specify the key type
-    let key = GenericArray::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key);
-
-    let plaintext = cipher.decrypt(nonce, ciphertext)?;
-
-    let key_path = format!("/.commune/key/{}.json", key_name);
-    std::fs::write(&key_path, &plaintext)?;
-
-    Ok(())
+fn get_key_directory() -> Result<PathBuf, EncryptionError> {
+    home_dir()
+        .map(|mut path| {
+            path.push(".commune");
+            path.push("key");
+            path
+        })
+        .ok_or_else(|| EncryptionError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Home directory not found"
+        )))
 }
 
 pub fn encrypt_key_file(key_name: &str, key_bytes: &[u8]) -> Result<(), EncryptionError> {
-    let key_path = format!("/.commune/key/{}.json", key_name);
-    let data = std::fs::read(&key_path)?;
+    let mut key_path = get_key_directory()?;
+    key_path.push(format!("{}.json", key_name));
+    
+    // Ensure the directory exists
+    if let Some(parent) = key_path.parent() {
+        fs::create_dir_all(parent).map_err(EncryptionError::IoError)?;
+    }
+    
+    // Check if the file exists before trying to read it
+    if !key_path.exists() {
+        return Err(EncryptionError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Key file not found: {}", key_path.display()),
+        )));
+    }
+
+    let data = fs::read(&key_path)?;
 
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    // Explicitly specify the key type
     let key = GenericArray::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key);
 
@@ -90,8 +99,52 @@ pub fn encrypt_key_file(key_name: &str, key_bytes: &[u8]) -> Result<(), Encrypti
     let mut encrypted_data = nonce_bytes.to_vec();
     encrypted_data.extend(ciphertext);
 
-    let encrypted_path = format!("/.commune/key/encrypted/{}.enc", key_name);
-    std::fs::write(encrypted_path, encrypted_data)?;
+    let mut encrypted_path = get_key_directory()?;
+    encrypted_path.push("encrypted");
+    encrypted_path.push(format!("{}.enc", key_name));
+    
+    // Ensure the encrypted directory exists
+    if let Some(parent) = encrypted_path.parent() {
+        fs::create_dir_all(parent).map_err(EncryptionError::IoError)?;
+    }
+
+    fs::write(encrypted_path, encrypted_data)?;
+
+    Ok(())
+}
+
+pub fn decrypt_key_file(key_name: &str, key_bytes: &[u8]) -> Result<(), EncryptionError> {
+    let mut encrypted_path = get_key_directory()?;
+    encrypted_path.push("encrypted");
+    encrypted_path.push(format!("{}.enc", key_name));
+    
+    // Check if the encrypted file exists
+    if !encrypted_path.exists() {
+        return Err(EncryptionError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Encrypted key file not found: {}", encrypted_path.display()),
+        )));
+    }
+
+    let encrypted_data = fs::read(&encrypted_path)?;
+
+    let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let key = GenericArray::from_slice(key_bytes);
+    let cipher = Aes256Gcm::new(key);
+
+    let plaintext = cipher.decrypt(nonce, ciphertext)?;
+
+    let mut key_path = get_key_directory()?;
+    key_path.push(format!("{}.json", key_name));
+    
+    // Ensure the directory exists
+    if let Some(parent) = key_path.parent() {
+        fs::create_dir_all(parent).map_err(EncryptionError::IoError)?;
+    }
+
+    fs::write(&key_path, &plaintext)?;
 
     Ok(())
 }

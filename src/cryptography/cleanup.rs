@@ -17,3 +17,4 @@ impl Drop for KeyFileGuard {
         let _ = cleanup_decrypted_key(&self.key_name);
     }
 }
+

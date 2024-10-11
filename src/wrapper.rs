@@ -1,7 +1,7 @@
 use std::process::Command;
 
 pub fn execute_cli_command(_key_name: &str, args: &[String]) -> anyhow::Result<()> {
-    let output = Command::new("commune-cli")
+    let output = Command::new("comx")
         .args(args)
         .output()?;
 
