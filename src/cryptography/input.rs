@@ -14,3 +14,14 @@ pub fn get_key_name() -> anyhow::Result<String> {
     stdin().read_line(&mut key_name)?;
     Ok(key_name.trim().to_string())
 }
+
+pub fn get_password() -> anyhow::Result<String> {
+    // if let Ok(password) = std::env::var("COMX_PASSWORD") {
+    //     if !password.is_empty() {
+    //         return Ok(password);
+    //     }
+    // }
+    println!("Please enter your password (input will be hidden):");
+    let password = read_password()?;
+    Ok(password)
+}

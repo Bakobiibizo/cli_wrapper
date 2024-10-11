@@ -1,87 +1,119 @@
 mod wrapper;
 mod cryptography;
 
-use std::fs;
+use std::env;
 use std::io::{self, BufRead};
-use zeroize::Zeroize;
-use crate::cryptography::{encryption, derive, input, cleanup};
+use cryptography::encryption::get_encryption_key;
+use crate::cryptography::{encryption, input, cleanup};
+use anyhow::{Result, anyhow};
 
-use anyhow::Result;
+
 
 fn execute_command(key_name: &str, encryption_key: &[u8], args: &[String]) -> Result<()> {
-    // Decrypt the key temporarily
-    encryption::decrypt_key_file(key_name, encryption_key)?;
-
-    // Ensure the key file is deleted after execution
+    println!("Debug: Starting execute_command for key '{}'", key_name);
+    println!("Debug: Command args: {:?}", args);
+    
+    match encryption::decrypt_key_file(key_name, encryption_key) {
+        Ok(_) => println!("Debug: Key file decrypted successfully"),
+        Err(e) => {
+            println!("Debug: Failed to decrypt key file: {:?}", e);
+            return Err(e.into());
+        }
+    }
+    
     let _guard = cleanup::KeyFileGuard {
         key_name: key_name.to_string(),
     };
-
-    // Execute the CLI command
-    wrapper::execute_cli_command(key_name, args)?;
-
-    // Re-encrypt the key file
-    encryption::encrypt_key_file(key_name, encryption_key)?;
-
+    
+    match wrapper::execute_cli_command(key_name, args) {
+        Ok(_) => println!("Debug: CLI command executed successfully"),
+        Err(e) => {
+            println!("Debug: Failed to execute CLI command: {:?}", e);
+            return Err(e);
+        }
+    }
+    
+    match encryption::encrypt_key_file(key_name, encryption_key) {
+        Ok(_) => println!("Debug: Key file encrypted successfully"),
+        Err(e) => {
+            println!("Debug: Failed to encrypt key file: {:?}", e);
+            return Err(e.into());
+        }
+    }
+    
     Ok(())
 }
 
-pub fn main() -> Result<()> {
-    // Securely get the mnemonic phrase
-    let key_name = input::get_key_name()?;
-    let mut mnemonic = input::get_mnemonic()?;
-
-    // Derive encryption key from mnemonic
-    let mut encryption_key = derive::derive_key_from_mnemonic(&mnemonic);
-
-    // Zeroize mnemonic after use
-    mnemonic.zeroize();
-
-    // Check if the encrypted key exists
-    let encrypted_path = format!("/home/administrator/.commune/key/encrypted/{}.enc", key_name);
-    if !std::path::Path::new(&encrypted_path).exists() {
-        println!("Encrypting the key for the first time...");
- 
-        // Create the initial key file if it doesn't exist
-        let key_path = format!("/home/administrator/.commune/key/{}.json", key_name);
-        if !std::path::Path::new(&key_path).exists() {
-            // Here you would typically generate or obtain the initial key data
-            let initial_key_data = "{}".to_string(); // Replace with actual initial key data
-            std::fs::write(&key_path, initial_key_data)?;
-        }
- 
-        // Encrypt the key file
-        encryption::encrypt_key_file(&key_name, &encryption_key)
-            .map_err(|e| anyhow::anyhow!("Encryption error: {}", e))?;
-        println!("Encrypted key file path: {}", encrypted_path);
- 
-        // Delete the original unencrypted key file
-        let old_key_path = format!("/home/administrator/.commune/key/{}.json", key_name);
-        if std::path::Path::new(&old_key_path).exists() {   
-            fs::remove_file(&old_key_path)?;
-        }
- 
-        println!("Key encrypted and stored safely.");
-    }
-
+fn interactive_mode(key_name: &str, encryption_key: &[u8]) -> Result<()> {
+    println!("Debug: Entered interactive_mode with key: {}", key_name);
     println!("Listening for commands. Type 'comx' followed by your command, or 'exit' to quit.");
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         let input = line?;
         let parts: Vec<String> = input.split_whitespace().map(String::from).collect();
         
+        println!("Debug: Received command: {:?}", parts);
+        
         if parts.get(0) == Some(&"comx".to_string()) && parts.len() > 1 {
             let args = &parts[1..];
-            execute_command(&key_name, &encryption_key, args)?;
+            println!("Debug: Executing command for key: {} with args: {:?}", key_name, args);
+            match execute_command(key_name, encryption_key, args) {
+                Ok(_) => println!("Command executed successfully"),
+                Err(e) => println!("Error executing command: {:?}", e),
+            }
         } else if input.trim().to_lowercase() == "exit" {
             break;
         } else {
             println!("Invalid command. Use 'comx' followed by your command, or type 'exit' to quit.");
         }
     }
+    Ok(())
+}
 
-    // Zeroize encryption key after use
-    encryption_key.zeroize();
+pub fn main() -> Result<()> {
+    encryption::test_key_derivation();
+    let args: Vec<String> = env::args().collect();
+    
+    println!("Debug: Command line args: {:?}", args);
+
+    let key_name = if args.len() < 2 {
+        let input_key_name = input::get_key_name()?;
+        println!("Debug: Input key name from user: {}", input_key_name);
+        input_key_name
+    } else {
+        let input_key_name = args[1].clone();
+        println!("Debug: Input key name from args: {}", input_key_name);
+        input_key_name
+    };
+    
+    println!("Debug: Final key_name in main: {}", key_name);
+
+    match args.get(2).map(String::as_str) {
+        Some("decrypt") => {
+            println!("Debug: Decrypting key: {}", key_name);
+            let encryption_key = get_encryption_key()?;
+            encryption::decrypt_key_file(&key_name, &encryption_key)?
+        },
+        Some("encrypt") => {
+            println!("Debug: Encrypting key: {}", key_name);
+            let encryption_key = get_encryption_key()?;
+            encryption::encrypt_key_file(&key_name, &encryption_key)?;
+        },
+        _ => {
+            if args.len() < 2 {
+                println!("Debug: Entering interactive mode with key: {}", key_name);
+                let encryption_key = get_encryption_key()?;
+                interactive_mode(&key_name, &encryption_key)?;
+            } else if args.len() < 3 {
+                return Err(anyhow!("Usage: {} <key_name> <command> [args...] or <key_name> decrypt|encrypt", args[0]));
+            } else {
+                println!("Debug: Executing command for key: {}", key_name);
+                let encryption_key = get_encryption_key()?;
+                let command_args = &args[2..];
+                execute_command(&key_name, &encryption_key, command_args)?;
+            }
+        }
+    }
 
     Ok(())
 }
