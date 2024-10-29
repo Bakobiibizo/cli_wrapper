@@ -83,19 +83,41 @@ pub fn main() -> Result<()> {
     
     // println!("Debug: Command line args: {:?}", args);
 
-    let key_name = if args.len() < 2 {
-        let input_key_name = input::get_key_name()?;
-        // println!("Debug: Input key name from user: {}", input_key_name);
-        input_key_name
-    } else {
-        let input_key_name = args[1].clone();
-        // println!("Debug: Input key name from args: {}", input_key_name);
-        input_key_name
-    };
-    
-    // println!("Debug: Final key_name in main: {}", key_name);
+    // Parse arguments and check for '--regen_key' flag
+    let mut args_iter = args.iter().skip(1); // Skip the program name
+    let mut regen_key = false;
+    let mut key_name = String::new();
+    let mut command_args = Vec::new();
 
-    match args.get(2).map(String::as_str) {
+    while let Some(arg) = args_iter.next() {
+        match arg.as_str() {
+            "--regen_key" => {
+                regen_key = true;
+            },
+            other => {
+                if key_name.is_empty() {
+                    key_name = other.to_string();
+                } else {
+                    command_args.push(other.to_string());
+                }
+            }
+        }
+    }
+
+    if key_name.is_empty() {
+        key_name = input::get_key_name()?;
+    }
+
+    if regen_key {
+        // Prompt the user to securely input their mnemonic
+        let mnemonic = input::get_mnemonic()?;
+
+        // Execute the regeneration command
+        wrapper::regen_key_command(&key_name, &mnemonic)?;
+    }
+
+    // Continue with normal execution
+    match command_args.get(0).map(String::as_str) {
         Some("decrypt") => {
             // println!("Debug: Decrypting key: {}", key_name);
             let encryption_key = get_encryption_key()?;
@@ -107,17 +129,14 @@ pub fn main() -> Result<()> {
             encryption::encrypt_key_file(&key_name, &encryption_key)?;
         },
         _ => {
-            if args.len() < 2 {
+            if command_args.is_empty() {
                 // println!("Debug: Entering interactive mode with key: {}", key_name);
                 let encryption_key = get_encryption_key()?;
                 interactive_mode(&key_name, &encryption_key)?;
-            } else if args.len() < 3 {
-                return Err(anyhow!("Usage: {} <key_name> <command> [args...] or <key_name> decrypt|encrypt", args[0]));
             } else {
                 // println!("Debug: Executing command for key: {}", key_name);
                 let encryption_key = get_encryption_key()?;
-                let command_args = &args[2..];
-                execute_command(&key_name, &encryption_key, command_args)?;
+                execute_command(&key_name, &encryption_key, &command_args)?;
             }
         }
     }

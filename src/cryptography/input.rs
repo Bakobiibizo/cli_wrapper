@@ -19,3 +19,9 @@ pub fn get_password() -> anyhow::Result<String> {
     let password = read_password()?;
     Ok(password)
 }
+
+pub fn get_mnemonic() -> anyhow::Result<String> {
+    println!("Please enter your mnemonic (input will be hidden):");
+    let mnemonic = read_password()?;
+    Ok(mnemonic.trim().to_string())
+}
